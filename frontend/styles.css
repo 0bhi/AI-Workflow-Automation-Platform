@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-background text-foreground;
+}
+
+.card {
+  @apply rounded-xl border border-border bg-slate-900/40 p-4 shadow-sm;
+}
+
+.btn-primary {
+  @apply inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2;
+}
+
+/* ReactFlow canvas: node and edge styling */
+.react-flow__node {
+  @apply rounded-lg border border-slate-600/60 bg-slate-800/90 shadow-md;
+  font-size: 12px;
+}
+.react-flow__node.selected {
+  @apply border-sky-500/70 ring-1 ring-sky-500/30;
+}
+.react-flow__edge-path {
+  stroke: rgba(148, 163, 184, 0.6);
+}
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: rgba(56, 189, 248, 0.9);
+}
+.react-flow__controls button {
+  border-radius: 0.5rem;
+}
+.react-flow__minimap {
+  border-radius: 0.5rem;
+}
+
+
