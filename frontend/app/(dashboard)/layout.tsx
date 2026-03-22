@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { AccountBadge } from "./AccountBadge";
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
@@ -10,7 +11,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             AI Workflows
           </Link>
         </div>
-        <nav className="space-y-0.5 text-sm">
+        <nav className="flex-1 space-y-0.5 text-sm">
           <Link
             href="/workflows"
             className="block rounded-lg px-3 py-2.5 text-slate-300 transition-colors hover:bg-slate-800/60 hover:text-slate-100"
@@ -23,7 +24,26 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           >
             Runs
           </Link>
+          <Link
+            href="/usage"
+            className="block rounded-lg px-3 py-2.5 text-slate-300 transition-colors hover:bg-slate-800/60 hover:text-slate-100"
+          >
+            Usage
+          </Link>
+          <Link
+            href="/schedules"
+            className="block rounded-lg px-3 py-2.5 text-slate-300 transition-colors hover:bg-slate-800/60 hover:text-slate-100"
+          >
+            Schedules
+          </Link>
+          <Link
+            href="/team"
+            className="block rounded-lg px-3 py-2.5 text-slate-300 transition-colors hover:bg-slate-800/60 hover:text-slate-100"
+          >
+            Team
+          </Link>
         </nav>
+        <AccountBadge />
       </aside>
       <main className="flex flex-1 flex-col min-h-0 bg-slate-950/60 px-6 py-4 overflow-hidden">
         {children}
@@ -31,5 +51,3 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     </div>
   );
 }
-
-

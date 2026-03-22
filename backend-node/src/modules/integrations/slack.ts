@@ -5,14 +5,15 @@ import { fetch } from "undici";
 import { env } from "../../config/env";
 import { query } from "../../db/client";
 import { resolveTenantId } from "../auth/context";
+import { assertRole, ADMIN } from "../auth/rbac";
 
 const SLACK_OAUTH_URL = "https://slack.com/api/oauth.v2.access";
 const SLACK_SCOPES = "chat:write,channels:read,users:read";
 
 export async function registerSlackIntegrationRoutes(app: FastifyInstance) {
-  // Initiate Slack OAuth install flow
+  // Initiate Slack OAuth install flow (admin-only)
   app.get("/api/integrations/slack/install", async (request, reply) => {
-    const tenantId = resolveTenantId(request);
+    const { tenantId } = await assertRole(request, ADMIN);
 
     if (!env.SLACK_CLIENT_ID) {
       return reply.code(500).send({ error: "Slack OAuth not configured" });
@@ -138,11 +139,11 @@ export async function registerSlackIntegrationRoutes(app: FastifyInstance) {
     }));
   });
 
-  // Disconnect an integration
+  // Disconnect an integration (admin-only)
   app.delete<{
     Params: { provider: string };
   }>("/api/integrations/:provider", async (request, reply) => {
-    const tenantId = resolveTenantId(request);
+    const { tenantId } = await assertRole(request, ADMIN);
     const { provider } = request.params;
 
     await query(

@@ -1,4 +1,4 @@
--- Core multi-tenant workflow schema (MVP)
+-- Core multi-tenant workflow schema
 
 create table if not exists tenants (
   id text primary key,
@@ -39,19 +39,6 @@ alter table users add column if not exists role text not null default 'admin';
 
 create unique index if not exists users_email_idx
   on users (email);
-
-create table if not exists invitations (
-  id text primary key,
-  tenant_id text not null references tenants(id) on delete cascade,
-  email text not null,
-  role text not null default 'editor',
-  invited_by text not null references users(id) on delete cascade,
-  created_at timestamptz not null default now(),
-  accepted_at timestamptz
-);
-
-create index if not exists invitations_tenant_email_idx
-  on invitations (tenant_id, email);
 
 create table if not exists workflow_versions (
   id text primary key,
@@ -189,4 +176,21 @@ create table if not exists agent_memories (
 create index if not exists agent_memories_tenant_idx
   on agent_memories (tenant_id, created_at desc);
 
+-- Tenant invitations (admin-issued, token-based)
+create table if not exists invites (
+  id text primary key,
+  tenant_id text not null references tenants(id) on delete cascade,
+  email text not null,
+  role text not null default 'viewer',
+  token text not null unique,
+  expires_at timestamptz not null,
+  accepted_at timestamptz,
+  created_at timestamptz not null default now()
+);
 
+create unique index if not exists invites_tenant_email_pending_idx
+  on invites (tenant_id, email)
+  where accepted_at is null;
+
+create index if not exists invites_token_idx
+  on invites (token);

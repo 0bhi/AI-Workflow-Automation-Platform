@@ -10,8 +10,6 @@ Multi-tenant **AI workflow automation platform** that lets you design workflow D
 - **Agentic workflows**: LLM-driven agent nodes that call tools (HTTP, Slack, memory, storage, tickets, extraction) in a loop until they reach a final answer.
 - **Production‑style concerns**: Multi-tenancy, RBAC, quotas, usage metering, rate limiting, webhooks, cron scheduling, Slack OAuth, metrics, and CI.
 
-Use this as a **portfolio project** to show experience designing and shipping realistic AI + tools systems, not just isolated models.
-
 ---
 
 ## Architecture overview
@@ -20,10 +18,14 @@ Use this as a **portfolio project** to show experience designing and shipping re
 
 - **`frontend/` – Next.js dashboard**
   - App Router + Tailwind UI.
-  - Auth UX: `login` / `signup` pages that talk to the backend auth API.
+  - Auth UX: `login` / `signup` / `accept-invite` pages that talk to the backend auth API.
   - Dashboard shell with:
     - Workflows list and detail views.
     - Runs list and run detail views.
+    - Usage dashboard with per-tenant metrics.
+    - Schedules management (create, toggle, delete cron schedules).
+    - **Team management** page: list members, send invites (admin-only), update roles.
+    - Account badge in the sidebar showing tenant name, email, and role with logout.
   - **ReactFlow-based DAG builder** (`components/workflow-builder/WorkflowBuilder.tsx`):
     - Drag‑and‑drop trigger, agent, tool, and logic nodes onto a canvas.
     - Configure agent nodes (model, system prompt, temperature).
@@ -33,18 +35,18 @@ Use this as a **portfolio project** to show experience designing and shipping re
 
 - **`backend-node/` – Fastify API + workers**
   - HTTP API for:
-    - **Auth**: signup/login, JWT issuance, multi-tenant users, invite + accept‑invite.
-    - **Tenants**: quota checks and usage metering.
-    - **Workflows**: CRUD, DAG versioning, list/get, and `POST /api/workflows/:slug/invoke`.
+    - **Auth**: signup/login, JWT issuance, multi-tenant users, admin-only invite flow, and accept-invite account creation.
+    - **Tenants**: tenant info, user listing, role management, quota checks, and usage metering.
+    - **Workflows**: CRUD, DAG versioning, list/get, and `POST /api/workflows/:slug/invoke`. Write operations require `admin` or `editor` role.
     - **Runs**: list runs and fetch run + step details.
-    - **Schedules**: DB-backed cron schedules that enqueue runs.
-    - **Integrations**: Slack OAuth install/callback + listing/removal of per‑tenant connections.
-    - **Triggers**: generic webhook, Slack Events API, SES email inbound.
+    - **Schedules**: DB-backed cron schedules that enqueue runs. Write operations require `admin` or `editor` role.
+    - **Integrations**: Slack OAuth install/callback + listing/removal of per‑tenant connections. Install and disconnect are admin-only.
+    - **Triggers**: generic webhook, Slack Events API.
   - **Workers**:
     - BullMQ run worker sends execution jobs to the Python agent.
     - Scheduler worker polls the DB for due cron schedules and enqueues runs.
   - **Persistence & infra**:
-    - Postgres (workflows, workflow_versions, workflow_runs, workflow_steps, tenants, users, tenant_usage, oauth_connections, invitations, schedules, etc.).
+    - Postgres (workflows, workflow_versions, workflow_runs, workflow_steps, tenants, users, invites, tenant_usage, oauth_connections, schedules, agent_memories, workflow_templates).
     - Redis + BullMQ for queues.
   - **Run & step state machines**:
     - Explicit FSMs for `workflow_runs` and `workflow_steps` to keep state transitions valid.
@@ -81,10 +83,10 @@ Use this as a **portfolio project** to show experience designing and shipping re
     - OpenAI tool definitions + async handlers for:
       - `http_request` – arbitrary HTTP calls to external APIs / webhooks.
       - `slack_send_message` – post messages to a Slack channel using per‑tenant or global tokens.
-      - `store_data` – persist structured data into the per-run context.
-      - `search_memory` – search long‑term vector memory for the tenant.
-      - `create_ticket` – simulate ticket creation with stable IDs.
-      - `extract_fields` – structured field extraction helper.
+    - `store_data` – persist structured data into the per‑run context (in‑memory per run, not a full DB layer).
+    - `search_memory` – search long‑term vector memory for the tenant.
+    - `create_ticket` – simulate ticket creation with stable IDs (portfolio‑friendly demo, not a real ticketing system).
+    - `extract_fields` – structured field extraction helper the agent uses as a schema; it’s designed for demos, not production‑grade PII extraction.
   - **Memory system (`app/agents/memory.py`)**:
     - Long‑term **vector memory per tenant** using Qdrant.
     - Embeddings via OpenAI (`text-embedding-3-small` by default).
@@ -164,17 +166,23 @@ frontend
 - **Auth & tenancy**
   - Email/password signup + login with bcrypt and JWT.
   - Each signup creates a new tenant and admin user.
-  - Invite flow: admins can invite new users (admin/editor/viewer) into a tenant.
+  - **Invite flow**: admins can invite new users into their tenant with a specific role. Invites are token-based with 7-day expiry. Accepting an invite creates a user in the inviter's tenant.
+  - Each user belongs to exactly one tenant (single-tenant-per-user model).
 
 - **RBAC**
   - Roles: `admin`, `editor`, `viewer`.
-  - Role verification using DB‑backed roles and JWT payload.
+  - Role verification via DB-backed `assertRole` helper, enforced at the HTTP layer:
+    - **Admin-only**: invites, template imports, integration install/disconnect, workflow deletion, schedule deletion.
+    - **Admin + editor**: workflow create/update/save DAG, schedule create/update, invoke workflows.
+    - **All authenticated users**: read workflows, runs, schedules, usage, and integrations.
+  - Team management UI page lets admins view members, change roles, and send invites.
 
 - **Quotas & usage**
   - Per‑tenant **monthly run quota**; enforced before queueing runs.
   - Usage aggregation by month:
     - Tracks monthly totals for runs, steps, tool calls, and LLM calls.
     - Schema fields are ready for LLM tokens and estimated cost in cents, so you can wire in provider pricing later.
+    - In this portfolio demo, `estimated_cost_cents` remains `0` because the stack uses free/self-hosted APIs; you can plug in provider pricing later to make this live.
 
 ### Integrations, triggers, and scheduling
 
@@ -377,9 +385,16 @@ This is not a full API spec, but a quick map of the most important endpoints.
 
 - `POST /api/auth/signup` — Email/password signup; creates a tenant + admin user.
 - `POST /api/auth/login` — Login; returns JWT and tenant info.
-- `GET /api/auth/me` — Introspect current auth token.
-- `POST /api/auth/invite` — Admin-only; invite a user to the tenant.
-- `POST /api/auth/accept-invite` — Accept an invitation and create an account.
+- `GET /api/auth/me` — Returns current user profile, role, and tenant details.
+- `POST /api/auth/invite` — Admin-only; send a token-based invite to a new user with a specific role.
+- `POST /api/auth/accept-invite` — Accept an invitation with a token and password; creates a user and returns a JWT.
+
+### Tenant management
+
+- `GET /api/tenants/me` — Tenant details (name, plan, quotas) for the current user.
+- `GET /api/tenants/users` — Admin-only; list all users in the tenant.
+- `PATCH /api/tenants/users/:userId` — Admin-only; change a user's role.
+- `GET /api/tenants/invites` — Admin-only; list pending invitations.
 
 ### Observability
 
@@ -389,5 +404,18 @@ This is not a full API spec, but a quick map of the most important endpoints.
 
 ---
 
+## Manual verification checklist
 
+Use this to quickly verify the multi-tenant and RBAC features work end-to-end after a fresh setup.
+
+1. **Start all services** with `./start-all.sh`.
+2. **Sign up** at `http://localhost:3000/signup`. This creates a tenant and admin user. Copy the JWT from localStorage.
+3. **Create a workflow** from the Workflows page and save a DAG.
+4. **Invoke the workflow** from the UI and watch the run appear on the Runs page.
+5. **Check usage** on the Usage page — `totalRuns` should increment.
+6. **Team page** — navigate to the Team page in the sidebar. You should see yourself as the only member.
+7. **Send an invite** — enter an email and a role (e.g. `editor`) and click "Send invite". Copy the accept URL from the success banner.
+8. **Accept the invite** — open the accept URL in an incognito window, set a password, and click "Join tenant". You should be redirected to the dashboard.
+9. **Verify RBAC** — as the `editor` user, try creating and invoking workflows (should succeed). Try deleting a workflow or creating an invite (should get 403).
+10. **Change a role** — back in the admin account's Team page, change the invited user's role to `viewer` using the dropdown.
 

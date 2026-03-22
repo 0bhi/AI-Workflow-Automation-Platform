@@ -41,6 +41,14 @@ async function buildServer() {
     done();
   });
 
+  app.setErrorHandler((error, _request, reply) => {
+    const status =
+      typeof (error as any).statusCode === "number"
+        ? (error as any).statusCode
+        : 500;
+    reply.code(status).send({ error: error.message ?? "Internal server error" });
+  });
+
   await registerAuthRoutes(app);
   await registerWorkflowRoutes(app);
   await registerRunRoutes(app);

@@ -5,8 +5,9 @@ This document summarizes the current implementation of the AI Workflow Automatio
 ### Services
 
 - **frontend**: Next.js App Router app in `frontend/` with:
-  - `(auth)` segment for `login` and `signup`.
-  - `(dashboard)` shell with `workflows` list/detail and `runs` monitoring.
+  - `(auth)` segment for `login`, `signup`, and `accept-invite`.
+  - `(dashboard)` shell with `workflows` list/detail, `runs` monitoring, `usage` dashboard, `schedules` management, and `team` management (members, invites, role changes).
+  - Account badge in the sidebar displaying tenant name, user email, and role.
   - `components/workflow-builder/WorkflowBuilder.tsx` as the DAG builder UI.
 - **backend-node**: Fastify API + workers in `backend-node/`:
   - `src/main.ts` bootstraps the app, config, metrics, and routes.
@@ -43,4 +44,10 @@ This document summarizes the current implementation of the AI Workflow Automatio
 
 This layout keeps the DAG as the source of truth in Node, while implementing the cross-service contracts, agentic execution, and state-machine foundations required by the architecture plan.
 
+### Multi-tenancy Model
 
+- **Single-tenant-per-user**: every `users` row has a `tenant_id` foreign key. A user belongs to exactly one tenant; there is no cross-tenant membership.
+- **Data partitioning**: all core tables (`workflows`, `workflow_runs`, `workflow_steps`, `tenant_usage`, `oauth_connections`, `workflow_schedules`, `agent_memories`) are scoped by `tenant_id`. Backend routes resolve the tenant from the authenticated JWT.
+- **RBAC enforcement**: the `assertRole` helper verifies the caller's role against the DB before executing admin-only or editor-only operations. This is applied at the HTTP layer on routes for invites, template imports, schedule management, integration management, workflow creation/update/deletion, and user role changes.
+- **Invite flow**: admins create invites (stored in the `invites` table) with a secure token and expiry. The invited user accepts the invite at a public endpoint, which creates their account in the admin's tenant with the specified role.
+- **Quotas and usage**: per-tenant monthly run quotas are enforced before queueing runs. Usage (runs, steps, tool calls, LLM calls) is aggregated per month. There is no billing integration; quotas and metering provide the SaaS-like controls.

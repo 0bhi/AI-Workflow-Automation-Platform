@@ -13,6 +13,7 @@ import {
 } from "./repository";
 import { runQueue } from "../../lib/queue";
 import { resolveTenantId } from "../auth/context";
+import { assertRole, ADMIN, EDITOR } from "../auth/rbac";
 import { assertTenantRunQuota } from "../tenants/quota";
 
 const invokeParamsSchema = z.object({
@@ -66,7 +67,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance) {
   });
 
   app.post("/api/workflows/import-starters", async (request, reply) => {
-    const tenantId = resolveTenantId(request);
+    const { tenantId } = await assertRole(request, ADMIN);
 
     const existing = await listWorkflows(tenantId);
     if (existing.length > 0) {
@@ -92,7 +93,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance) {
   app.post<{
     Body: unknown;
   }>("/api/workflows", async (request, reply) => {
-    const tenantId = resolveTenantId(request);
+    const { tenantId } = await assertRole(request, ADMIN, EDITOR);
     const body = createWorkflowBodySchema.parse(request.body);
 
     try {
@@ -141,7 +142,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance) {
     Params: { id: string };
     Body: unknown;
   }>("/api/workflows/:id/dag", async (request, reply) => {
-    const tenantId = resolveTenantId(request);
+    const { tenantId } = await assertRole(request, ADMIN, EDITOR);
     const { id } = request.params;
     const body = saveDagBodySchema.parse(request.body);
 
@@ -173,7 +174,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance) {
     Params: { id: string };
     Body: unknown;
   }>("/api/workflows/:id", async (request, reply) => {
-    const tenantId = resolveTenantId(request);
+    const { tenantId } = await assertRole(request, ADMIN, EDITOR);
     const { id } = request.params;
     const body = updateWorkflowBodySchema.parse(request.body);
 
@@ -196,7 +197,7 @@ export async function registerWorkflowRoutes(app: FastifyInstance) {
   app.delete<{
     Params: { id: string };
   }>("/api/workflows/:id", async (request, reply) => {
-    const tenantId = resolveTenantId(request);
+    const { tenantId } = await assertRole(request, ADMIN);
     const { id } = request.params;
 
     await archiveWorkflow(tenantId, id);

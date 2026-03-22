@@ -16,7 +16,7 @@ import ReactFlow, {
   type NodeChange
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { API_BASE_URL, invokeWorkflow } from "@lib/api/client";
+import { API_BASE_URL, buildAuthHeaders, invokeWorkflow } from "@lib/api/client";
 
 type NodeKind = "trigger" | "agent" | "tool" | "logic";
 
@@ -508,17 +508,9 @@ export function WorkflowBuilder({ workflowId, workflowSlug, initialDag }: Workfl
 
     try {
       const headers: Record<string, string> = {
-        "content-type": "application/json"
+        "content-type": "application/json",
+        ...buildAuthHeaders(),
       };
-
-      if (typeof window !== "undefined") {
-        const token = window.localStorage.getItem("authToken");
-        const tenantId = window.localStorage.getItem("tenantId") ?? "demo-tenant";
-        if (token) {
-          headers.authorization = `Bearer ${token}`;
-        }
-        headers["x-tenant-id"] = tenantId;
-      }
 
       const res = await fetch(`${API_BASE_URL}/api/workflows/${workflowId}/dag`, {
         method: "PUT",

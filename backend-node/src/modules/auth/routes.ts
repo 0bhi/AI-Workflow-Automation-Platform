@@ -1,10 +1,10 @@
-import { randomUUID } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { signAuthToken, type AuthTokenPayload, verifyAuthToken } from "./jwt";
 import { query } from "../../db/client";
-import { assertRole, ADMIN, type Role } from "./rbac";
+import { ADMIN, EDITOR, VIEWER, assertRole, type Role } from "./rbac";
 import { authRateLimit } from "../../lib/rateLimit";
 
 const credentialsSchema = z.object({
@@ -14,12 +14,12 @@ const credentialsSchema = z.object({
 
 const inviteBodySchema = z.object({
   email: z.string().email(),
-  role: z.enum(["admin", "editor", "viewer"])
+  role: z.enum(["admin", "editor", "viewer"]).default("viewer"),
 });
 
 const acceptInviteBodySchema = z.object({
-  invitationId: z.string().min(1),
-  password: z.string().min(4)
+  token: z.string().min(1),
+  password: z.string().min(4),
 });
 
 export async function registerAuthRoutes(app: FastifyInstance) {
@@ -129,112 +129,159 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       return reply.code(401).send({ error: "Invalid token" });
     }
 
-    return reply.send(payload);
-  });
-
-  app.post<{ Body: unknown }>("/api/auth/invite", async (request, reply) => {
-    const { userId, tenantId } = await assertRole(request, ADMIN);
-    const { email, role } = inviteBodySchema.parse(request.body);
-
-    const existing = await query<{ id: string }>(
-      `select id from users where email = $1 limit 1`,
-      [email.toLowerCase()]
-    );
-    if (existing.rows[0]) {
-      return reply.code(409).send({ error: "A user with this email already exists" });
-    }
-
-    const pendingInvite = await query<{ id: string }>(
-      `select id from invitations where tenant_id = $1 and email = $2 and accepted_at is null limit 1`,
-      [tenantId, email.toLowerCase()]
-    );
-    if (pendingInvite.rows[0]) {
-      return reply.code(409).send({ error: "A pending invitation already exists for this email" });
-    }
-
-    const invitationId = `inv_${randomUUID()}`;
-    await query(
-      `
-        insert into invitations (id, tenant_id, email, role, invited_by)
-        values ($1, $2, $3, $4, $5)
-      `,
-      [invitationId, tenantId, email.toLowerCase(), role, userId]
-    );
-
-    const result = await query<{
+    const userResult = await query<{
       id: string;
-      tenant_id: string;
       email: string;
       role: string;
-      invited_by: string;
-      created_at: string;
-      accepted_at: string | null;
-    }>(
-      `select id, tenant_id, email, role, invited_by, created_at, accepted_at from invitations where id = $1`,
-      [invitationId]
-    );
-
-    return reply.code(201).send(result.rows[0]);
-  });
-
-  app.post<{ Body: unknown }>("/api/auth/accept-invite", async (request, reply) => {
-    const { invitationId, password } = acceptInviteBodySchema.parse(request.body);
-
-    const invResult = await query<{
-      id: string;
       tenant_id: string;
-      email: string;
-      role: string;
-      accepted_at: string | null;
     }>(
-      `select id, tenant_id, email, role, accepted_at from invitations where id = $1 limit 1`,
-      [invitationId]
+      `select id, email, role, tenant_id from users where id = $1 limit 1`,
+      [payload.sub]
     );
 
-    const invitation = invResult.rows[0];
-    if (!invitation) {
-      return reply.code(404).send({ error: "Invitation not found" });
-    }
-    if (invitation.accepted_at) {
-      return reply.code(410).send({ error: "Invitation has already been accepted" });
+    const user = userResult.rows[0];
+    if (!user) {
+      return reply.code(401).send({ error: "User not found" });
     }
 
-    const existingUser = await query<{ id: string }>(
-      `select id from users where email = $1 limit 1`,
-      [invitation.email]
-    );
-    if (existingUser.rows[0]) {
-      return reply.code(409).send({ error: "A user with this email already exists" });
-    }
-
-    const userId = `user_${randomUUID()}`;
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    await query(
-      `
-        insert into users (id, email, password_hash, tenant_id, role)
-        values ($1, $2, $3, $4, $5)
-      `,
-      [userId, invitation.email, passwordHash, invitation.tenant_id, invitation.role]
+    const tenantResult = await query<{ name: string; slug: string; plan: string }>(
+      `select name, slug, plan from tenants where id = $1 limit 1`,
+      [user.tenant_id]
     );
 
-    await query(
-      `update invitations set accepted_at = now() where id = $1`,
-      [invitationId]
-    );
+    const tenant = tenantResult.rows[0];
 
-    const payload: AuthTokenPayload = {
-      sub: userId,
-      tenantId: invitation.tenant_id,
-      role: invitation.role
-    };
-    const token = signAuthToken(payload);
-
-    return reply.code(201).send({
-      token,
-      tenantId: invitation.tenant_id,
-      email: invitation.email,
-      role: invitation.role
+    return reply.send({
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      tenantId: user.tenant_id,
+      tenantName: tenant?.name ?? null,
+      tenantSlug: tenant?.slug ?? null,
+      tenantPlan: tenant?.plan ?? null,
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Invite a user to the current tenant (admin-only)
+  // ---------------------------------------------------------------------------
+  app.post<{ Body: unknown }>(
+    "/api/auth/invite",
+    { preHandler: [authRateLimit] },
+    async (request, reply) => {
+      const { tenantId } = await assertRole(request, ADMIN);
+      const { email, role } = inviteBodySchema.parse(request.body);
+      const lowerEmail = email.toLowerCase();
+
+      const existingUser = await query<{ id: string }>(
+        `select id from users where email = $1 and tenant_id = $2 limit 1`,
+        [lowerEmail, tenantId]
+      );
+      if (existingUser.rows[0]) {
+        return reply.code(409).send({ error: "User already exists in this tenant" });
+      }
+
+      const existingInvite = await query<{ id: string }>(
+        `select id from invites where tenant_id = $1 and email = $2 and accepted_at is null limit 1`,
+        [tenantId, lowerEmail]
+      );
+      if (existingInvite.rows[0]) {
+        return reply.code(409).send({ error: "A pending invite already exists for this email" });
+      }
+
+      const inviteId = `invite_${randomUUID()}`;
+      const inviteToken = randomBytes(32).toString("hex");
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+      await query(
+        `
+          insert into invites (id, tenant_id, email, role, token, expires_at)
+          values ($1, $2, $3, $4, $5, $6)
+        `,
+        [inviteId, tenantId, lowerEmail, role, inviteToken, expiresAt.toISOString()]
+      );
+
+      request.log.info({ tenantId, email: lowerEmail, role }, "Invite created");
+
+      return reply.code(201).send({
+        id: inviteId,
+        email: lowerEmail,
+        role,
+        token: inviteToken,
+        expiresAt: expiresAt.toISOString(),
+      });
+    }
+  );
+
+  // ---------------------------------------------------------------------------
+  // Accept an invitation and create an account
+  // ---------------------------------------------------------------------------
+  app.post<{ Body: unknown }>(
+    "/api/auth/accept-invite",
+    { preHandler: [authRateLimit] },
+    async (request, reply) => {
+      const { token: inviteToken, password } = acceptInviteBodySchema.parse(request.body);
+
+      const inviteResult = await query<{
+        id: string;
+        tenant_id: string;
+        email: string;
+        role: string;
+        expires_at: string;
+        accepted_at: string | null;
+      }>(
+        `select id, tenant_id, email, role, expires_at, accepted_at from invites where token = $1 limit 1`,
+        [inviteToken]
+      );
+
+      const invite = inviteResult.rows[0];
+      if (!invite) {
+        return reply.code(404).send({ error: "Invite not found" });
+      }
+
+      if (invite.accepted_at) {
+        return reply.code(400).send({ error: "Invite has already been accepted" });
+      }
+
+      if (new Date(invite.expires_at) < new Date()) {
+        return reply.code(400).send({ error: "Invite has expired" });
+      }
+
+      const existingUser = await query<{ id: string }>(
+        `select id from users where email = $1 and tenant_id = $2 limit 1`,
+        [invite.email, invite.tenant_id]
+      );
+      if (existingUser.rows[0]) {
+        return reply.code(409).send({ error: "User already exists for this email in the tenant" });
+      }
+
+      const userId = `user_${randomUUID()}`;
+      const passwordHash = await bcrypt.hash(password, 10);
+      const role = invite.role as Role;
+
+      await query(
+        `insert into users (id, email, password_hash, tenant_id, role) values ($1, $2, $3, $4, $5)`,
+        [userId, invite.email, passwordHash, invite.tenant_id, role]
+      );
+
+      await query(
+        `update invites set accepted_at = now() where id = $1`,
+        [invite.id]
+      );
+
+      const authPayload: AuthTokenPayload = { sub: userId, tenantId: invite.tenant_id, role };
+      const authToken = signAuthToken(authPayload);
+
+      request.log.info(
+        { tenantId: invite.tenant_id, email: invite.email, role },
+        "Invite accepted, user created"
+      );
+
+      return reply.code(201).send({
+        token: authToken,
+        tenantId: invite.tenant_id,
+        email: invite.email,
+      });
+    }
+  );
 }

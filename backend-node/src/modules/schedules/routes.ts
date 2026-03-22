@@ -1,6 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { resolveTenantId } from "../auth/context";
+import { assertRole, ADMIN, EDITOR } from "../auth/rbac";
 import {
   listSchedules,
   createSchedule,
@@ -29,7 +30,7 @@ export async function registerScheduleRoutes(app: FastifyInstance) {
   });
 
   app.post<{ Body: unknown }>("/api/schedules", async (request, reply) => {
-    const tenantId = resolveTenantId(request);
+    const { tenantId } = await assertRole(request, ADMIN, EDITOR);
     const body = createScheduleSchema.parse(request.body);
 
     const schedule = await createSchedule({
@@ -46,7 +47,7 @@ export async function registerScheduleRoutes(app: FastifyInstance) {
   app.patch<{ Params: { id: string }; Body: unknown }>(
     "/api/schedules/:id",
     async (request, reply) => {
-      const tenantId = resolveTenantId(request);
+      const { tenantId } = await assertRole(request, ADMIN, EDITOR);
       const { id } = request.params;
       const body = updateScheduleSchema.parse(request.body);
 
@@ -67,7 +68,7 @@ export async function registerScheduleRoutes(app: FastifyInstance) {
   app.delete<{ Params: { id: string } }>(
     "/api/schedules/:id",
     async (request, reply) => {
-      const tenantId = resolveTenantId(request);
+      const { tenantId } = await assertRole(request, ADMIN);
       const { id } = request.params;
       await deleteSchedule(tenantId, id);
       return reply.code(204).send();

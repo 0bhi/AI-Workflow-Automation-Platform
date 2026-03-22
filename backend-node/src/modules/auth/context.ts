@@ -10,13 +10,9 @@ export function resolveTenantId(request: FastifyRequest): string {
       return payload.tenantId;
     }
   }
-
-  const headerTenant = request.headers["x-tenant-id"] as string | undefined;
-  if (headerTenant) {
-    return headerTenant;
-  }
-
-  throw new Error("Missing tenant context");
+  const err = new Error("Missing tenant context");
+  (err as any).statusCode = 401;
+  throw err;
 }
 
 
