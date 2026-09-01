@@ -20,7 +20,7 @@ This document summarizes the current implementation of the AI Workflow Automatio
 - **agent-python**: FastAPI service in `agent-python/`:
   - `app/main.py` exposes `POST /internal/runs/execute` for Node to hand off runs asynchronously.
   - `app/agents/planner.py` implements deterministic DAG planning (topological sort).
-  - `app/agents/executor.py` implements a full agentic executor with OpenAI tool-calling, Slack/HTTP/storage tools, safe edge-condition evaluation, and Qdrant-backed long-term memory.
+  - `app/agents/executor.py` implements a full agentic executor with Ollama (OpenAI-compatible) tool-calling, Slack/HTTP/storage tools, safe edge-condition evaluation, and Qdrant-backed long-term memory.
 - **infra**: Docker Compose in `infra/docker-compose.yml` to run core data services:
   - Postgres, Redis, and Qdrant.
   - Application services (`backend-node`, `agent-python`, `frontend`) are run with local dev commands or `./start-all.sh` rather than inside this compose file.
@@ -37,7 +37,7 @@ This document summarizes the current implementation of the AI Workflow Automatio
    - Accepts the execution request and asynchronously runs the DAG execution plan.
    - For each node:
      - Trigger nodes pass through the initial input.
-     - Agent nodes run an iterative OpenAI tool-calling loop using the tools defined in `app/agents/tools.py`, retrieving and storing long-term memory via Qdrant.
+     - Agent nodes run an iterative Ollama tool-calling loop using the tools defined in `app/agents/tools.py`, retrieving and storing long-term memory via Qdrant.
      - Tool nodes execute deterministic HTTP/Slack/storage/ticket operations.
      - Logic nodes evaluate edge conditions using the safe AST-based evaluator in `app/agents/safe_eval.py`.
    - Sends step updates back to the Node backend via `/internal/workflow-runs/:runId/steps`, which drives the run and step FSMs and updates metrics/usage.

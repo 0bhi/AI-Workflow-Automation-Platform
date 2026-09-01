@@ -28,6 +28,18 @@ for i in {1..30}; do
 done
 sleep 1
 
+if [[ -f "$ROOT/agent-python/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT/agent-python/.env"
+  set +a
+fi
+
+if ! curl -sf "http://127.0.0.1:11434/api/tags" >/dev/null; then
+  echo "    Warning: Ollama is not reachable at http://127.0.0.1:11434"
+  echo "    Agent nodes need: ollama serve, plus qwen3:8b and qwen3-embedding:0.6b"
+fi
+
 echo "==> Applying database schema..."
 (cd backend-node && npm run db:schema) || true
 
@@ -44,7 +56,7 @@ echo "==> Starting backend-node scheduler..."
 PIDS+=($!)
 
 echo "==> Starting agent-python..."
-(cd agent-python && uvicorn app.main:app --host 0.0.0.0 --port 5000 --reload) &
+(cd agent-python && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 5000 --reload) &
 PIDS+=($!)
 
 echo "==> Starting frontend..."

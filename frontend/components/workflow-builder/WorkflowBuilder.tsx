@@ -157,7 +157,7 @@ function AgentConfigFields({
         <input
           type="text"
           className={inputCls}
-          placeholder="gpt-4o-mini"
+          placeholder="qwen3:8b"
           value={(config.model as string) ?? ""}
           onChange={(e) => onChange("model", e.target.value)}
         />

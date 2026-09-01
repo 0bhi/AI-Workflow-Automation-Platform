@@ -1,6 +1,6 @@
 ## AI Workflow Automation Platform
 
-Multi-tenant **AI workflow automation platform** that lets you design workflow DAGs in a web UI, trigger runs via HTTP/webhooks, and execute them through a Python **agentic executor** with real tool-calling and vector memory. It wires together a **Next.js dashboard**, a **Node.js Fastify API + BullMQ workers**, a **FastAPI-based agent service using OpenAI**, and **Postgres + Redis + Qdrant** into one end‑to‑end system.
+Multi-tenant **AI workflow automation platform** that lets you design workflow DAGs in a web UI, trigger runs via HTTP/webhooks, and execute them through a Python **agentic executor** with real tool-calling and vector memory. It wires together a **Next.js dashboard**, a **Node.js Fastify API + BullMQ workers**, a **FastAPI-based agent service using local Ollama** (OpenAI-compatible API), and **Postgres + Redis + Qdrant** into one end‑to‑end system.
 
 ---
 
@@ -67,7 +67,7 @@ Multi-tenant **AI workflow automation platform** that lets you design workflow D
   - **Executor (`app/agents/executor.py`)**:
     - Executes the DAG in order, with four node types:
       - `trigger`: passes through the initial input.
-      - `agent`: full OpenAI **tool‑calling loop**; the LLM:
+      - `agent`: full **tool‑calling loop** against Ollama; the LLM:
         - Sees available tools as function definitions.
         - Calls tools with arguments.
         - Receives tool results and continues reasoning.
@@ -89,7 +89,7 @@ Multi-tenant **AI workflow automation platform** that lets you design workflow D
     - `extract_fields` – structured field extraction helper the agent uses as a schema; it’s designed for demos, not production‑grade PII extraction.
   - **Memory system (`app/agents/memory.py`)**:
     - Long‑term **vector memory per tenant** using Qdrant.
-    - Embeddings via OpenAI (`text-embedding-3-small` by default).
+    - Embeddings via Ollama (`qwen3-embedding:0.6b`, 1024-d vectors by default).
     - Stores summaries of step inputs/outputs.
     - On each agent call, retrieves relevant prior memories and injects them into the prompt.
 
@@ -122,7 +122,7 @@ agent-python
   - builds a topological execution plan
   - for each node in the plan:
       - trigger nodes: pass through input
-      - agent nodes: run OpenAI tool-calling loop
+      - agent nodes: run Ollama tool-calling loop
           while model calls tools:
             execute tool handler → append result → continue
       - tool nodes: execute HTTP / Slack / storage / ticket tools
@@ -150,7 +150,7 @@ frontend
   - Deterministic execution order.
 
 - **Agentic tool calling**
-  - OpenAI chat completions with tool definitions.
+  - OpenAI-compatible chat completions (Ollama) with tool definitions.
   - Iterative tool-calling loop with:
     - Tool call logging (arguments + results).
     - Max-iteration safety guard.
@@ -233,7 +233,30 @@ frontend
 - **Node.js**: 20+
 - **Python**: 3.11+ (or 3.12 for CI)
 - **Docker + Docker Compose**: for Postgres, Redis, Qdrant
-- **OpenAI API key**: for agent and memory
+- **Ollama**: local LLM + embeddings (`qwen3:8b`, `qwen3-embedding:0.6b`)
+
+Install Ollama, then pull the models this repo expects:
+
+```bash
+ollama serve   # if it is not already running
+ollama pull qwen3:8b
+ollama pull qwen3-embedding:0.6b
+```
+
+If you previously used OpenAI embeddings, recreate the Qdrant collection so vectors are 1024-d (wipe the `qdrant_data` Docker volume, or delete the `agent_memory` collection).
+
+### One-time setup
+
+Install Node and Python dependencies (run once after clone, or whenever lockfiles/requirements change):
+
+```bash
+./setup.sh
+```
+
+This will:
+
+- `npm install` in `backend-node` and `frontend`
+- Create `agent-python/.venv` if needed and `pip install -r requirements.txt`
 
 ### One-command dev startup
 
@@ -264,7 +287,7 @@ Once it finishes, you’ll have:
 - Qdrant: `http://localhost:6333`
 - Metrics: `http://localhost:4000/metrics`
 
-> Note: `start-all.sh` assumes you’ve already run `npm install` in `backend-node` + `frontend` and `pip install -r requirements.txt` in `agent-python`.
+> Note: `start-all.sh` assumes you’ve already run `./setup.sh`.
 
 ### Manual setup (alternative)
 
@@ -289,7 +312,7 @@ cd ../agent-python
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-export OPENAI_API_KEY="your-key"
+# Ollama must already be running on :11434 with qwen3:8b and qwen3-embedding:0.6b
 uvicorn app.main:app --host 0.0.0.0 --port 5000 --reload
 
 # Frontend
@@ -334,9 +357,12 @@ npm test
 | Variable | Default | Description |
 | --- | --- | --- |
 | `NODE_BACKEND_URL` | `http://localhost:4000` | Node backend URL for step updates |
-| `OPENAI_API_KEY` | — | Required for agent execution + embeddings |
-| `OPENAI_MODEL` | `gpt-4o-mini` | Default LLM model for agent nodes |
-| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` | Embedding model for memory |
+| `OPENAI_BASE_URL` | `http://127.0.0.1:11434/v1` | OpenAI-compatible API (Ollama by default) |
+| `OPENAI_API_KEY` | `ollama` | Dummy key for the OpenAI SDK; Ollama ignores it |
+| `OPENAI_MODEL` | `qwen3:8b` | Default LLM model for agent nodes |
+| `OPENAI_EMBEDDING_MODEL` | `qwen3-embedding:0.6b` | Embedding model for memory |
+| `EMBEDDING_DIM` | `1024` | Qdrant vector size (must match the embedding model) |
+| `OLLAMA_THINK` | `false` (when using Ollama) | Set `true` to enable Qwen3 thinking tokens |
 | `MAX_AGENT_ITERATIONS` | `15` | Max tool-calling loop iterations per agent node |
 | `QDRANT_URL` | `http://localhost:6333` | Qdrant vector DB URL |
 | `QDRANT_COLLECTION` | `agent_memory` | Qdrant collection name for memories |
@@ -408,7 +434,7 @@ This is not a full API spec, but a quick map of the most important endpoints.
 
 Use this to quickly verify the multi-tenant and RBAC features work end-to-end after a fresh setup.
 
-1. **Start all services** with `./start-all.sh`.
+1. **Install deps** with `./setup.sh`, then **start all services** with `./start-all.sh`.
 2. **Sign up** at `http://localhost:3000/signup`. This creates a tenant and admin user. Copy the JWT from localStorage.
 3. **Create a workflow** from the Workflows page and save a DAG.
 4. **Invoke the workflow** from the UI and watch the run appear on the Runs page.

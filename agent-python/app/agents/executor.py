@@ -17,15 +17,15 @@ import os
 import httpx
 from openai import AsyncOpenAI
 
+from .llm import llm_base_url, llm_model, make_async_client
 from .planner import DagSnapshot, DagNode, DagEdge, build_execution_plan
-from .tools import TOOL_DEFINITIONS, execute_tool_call, get_tool_definitions
+from .tools import execute_tool_call, get_tool_definitions
 from .safe_eval import safe_eval_condition
 from .memory import MemoryManager
 
 logger = logging.getLogger(__name__)
 
 NODE_BACKEND_URL = os.environ.get("NODE_BACKEND_URL", "http://localhost:4000")
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 MAX_AGENT_ITERATIONS = int(os.environ.get("MAX_AGENT_ITERATIONS", "15"))
 
 _openai_client: AsyncOpenAI | None = None
@@ -35,11 +35,19 @@ _memory_manager: MemoryManager | None = None
 def _get_openai_client() -> AsyncOpenAI:
     global _openai_client
     if _openai_client is None:
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY is not configured for agent execution")
-        _openai_client = AsyncOpenAI(api_key=api_key)
+        _openai_client = make_async_client()
     return _openai_client
+
+
+def _chat_extra_body() -> dict[str, Any]:
+    """Qwen3 thinks by default; thinking tokens break the OpenAI tool-calling loop."""
+    raw = os.environ.get("OLLAMA_THINK")
+    if raw is None:
+        base = llm_base_url()
+        if "11434" in base or "ollama" in base:
+            return {"think": False}
+        return {}
+    return {"think": raw.strip().lower() in ("1", "true", "yes")}
 
 
 def _get_memory_manager() -> MemoryManager:
@@ -88,7 +96,7 @@ async def _execute_agent(node: DagNode, ctx: dict[str, Any]) -> dict[str, Any]:
     memory = _get_memory_manager()
 
     cfg = node.get("config", {}) or {}
-    model = cfg.get("model", OPENAI_MODEL)
+    model = str(cfg.get("model") or "").strip() or llm_model()
     system_prompt = cfg.get(
         "system_prompt",
         "You are an AI assistant executing a node inside an automation workflow. "
@@ -149,6 +157,10 @@ async def _execute_agent(node: DagNode, ctx: dict[str, Any]) -> dict[str, Any]:
         }
         if tool_defs:
             call_kwargs["tools"] = tool_defs
+
+        extra = _chat_extra_body()
+        if extra:
+            call_kwargs["extra_body"] = extra
 
         response = await client.chat.completions.create(**call_kwargs)
         message = response.choices[0].message

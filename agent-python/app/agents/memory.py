@@ -17,12 +17,14 @@ import logging
 import os
 import uuid
 
+from .llm import embedding_dim, embedding_model, make_sync_client
+
 logger = logging.getLogger(__name__)
 
-OPENAI_EMBEDDING_MODEL = os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+OPENAI_EMBEDDING_MODEL = embedding_model()
 QDRANT_COLLECTION = os.environ.get("QDRANT_COLLECTION", "agent_memory")
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:6333")
-EMBEDDING_DIM = 1536
+EMBEDDING_DIM = embedding_dim()
 
 
 def _get_qdrant_client():
@@ -32,12 +34,7 @@ def _get_qdrant_client():
 
 
 def _get_openai_client():
-    from openai import OpenAI
-
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY required for memory embeddings")
-    return OpenAI(api_key=api_key)
+    return make_sync_client()
 
 
 class MemoryManager:
@@ -59,7 +56,7 @@ class MemoryManager:
             try:
                 self._openai = _get_openai_client()
             except Exception as e:
-                logger.warning("OpenAI unavailable for embeddings: %s", e)
+                logger.warning("Embedding client unavailable: %s", e)
 
     def _ensure_collection(self) -> None:
         if self._collection_ensured or self._qdrant is None:
@@ -76,7 +73,19 @@ class MemoryManager:
                         distance=Distance.COSINE,
                     ),
                 )
-                logger.info("Created Qdrant collection: %s", QDRANT_COLLECTION)
+                logger.info("Created Qdrant collection: %s (dim=%s)", QDRANT_COLLECTION, EMBEDDING_DIM)
+            else:
+                info = self._qdrant.get_collection(QDRANT_COLLECTION)
+                existing = getattr(getattr(info.config.params, "vectors", None), "size", None)
+                if existing is not None and existing != EMBEDDING_DIM:
+                    logger.warning(
+                        "Qdrant collection %s has dim %s but EMBEDDING_DIM is %s. "
+                        "Delete the collection (or the qdrant_data volume) so it can be recreated.",
+                        QDRANT_COLLECTION,
+                        existing,
+                        EMBEDDING_DIM,
+                    )
+                    return
             self._collection_ensured = True
         except Exception as e:
             logger.warning("Failed to ensure Qdrant collection: %s", e)
