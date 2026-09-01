@@ -566,7 +566,10 @@ export function WorkflowBuilder({ workflowId, workflowSlug, initialDag }: Workfl
     setLastRunId(null);
 
     try {
-      const result = await invokeWorkflow(workflowSlug);
+      const result = await invokeWorkflow(workflowSlug, {
+        source: "dashboard",
+        event: "manual_run",
+      });
       if (result && typeof result.runId === "string") {
         setLastRunId(result.runId);
       }

@@ -65,16 +65,50 @@ class StepUpdateSender:
         run_id = payload["run_id"]
         async with httpx.AsyncClient(timeout=5.0) as client:
             try:
-                await client.post(
+                resp = await client.post(
                     f"{NODE_BACKEND_URL}/internal/workflow-runs/{run_id}/steps",
                     headers={"x-internal-token": INTERNAL_API_TOKEN},
                     json=payload,
                 )
+                if resp.status_code >= 400:
+                    logger.warning(
+                        "Step update rejected for run %s node %s: %s %s",
+                        run_id,
+                        payload.get("node_id"),
+                        resp.status_code,
+                        resp.text[:500],
+                    )
             except Exception:
+                logger.exception(
+                    "Failed to send step update for run %s node %s",
+                    run_id,
+                    payload.get("node_id"),
+                )
                 return None
 
 
 ExecutionFn = Callable[[DagNode, dict[str, Any]], Awaitable[dict[str, Any]]]
+
+
+def _text_for_slack(cfg: dict[str, Any], ctx: dict[str, Any]) -> str:
+    """Prefer an explicit node text, then the previous agent's message, not the whole JSON blob."""
+    configured = cfg.get("text")
+    if isinstance(configured, str) and configured.strip():
+        return configured.strip()[:4000]
+
+    payload = ctx.get("current_output") or ctx.get("input") or {}
+    if isinstance(payload, str):
+        return payload[:4000]
+    if isinstance(payload, dict):
+        for key in ("output", "text", "message"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()[:4000]
+        try:
+            return json.dumps(payload, ensure_ascii=False)[:4000]
+        except Exception:
+            return str(payload)[:4000]
+    return str(payload)[:4000]
 
 
 # ---------------------------------------------------------------------------
@@ -274,21 +308,12 @@ async def _execute_tool(node: DagNode, ctx: dict[str, Any]) -> dict[str, Any]:
     if node_id == "tool.slack_send_message" or node_id.endswith(".slack_send_message"):
         from .tools import handle_slack_send_message
 
-        payload = ctx.get("current_output") or ctx.get("input") or {}
-        if not isinstance(payload, str):
-            try:
-                text_default = json.dumps(payload, ensure_ascii=False)[:4000]
-            except Exception:
-                text_default = str(payload)[:4000]
-        else:
-            text_default = payload[:4000]
-
         tools_ctx = ctx.get("tools") or {}
         slack_ctx = tools_ctx.get("slack") or {}
 
         args = {
             "channel": cfg.get("channel") or slack_ctx.get("defaultChannel") or "#general",
-            "text": cfg.get("text") or text_default,
+            "text": _text_for_slack(cfg, ctx),
         }
         result = await handle_slack_send_message(args, ctx)
         return {"type": "tool", "tool": "slack_send_message", "node": node_id, **result}

@@ -14,7 +14,7 @@ This document matches the current implementation.
   - Run worker posts to the Python agent; scheduler worker enqueues due cron runs.
 - **agent-python**: FastAPI
   - `POST /internal/runs/execute` (`x-internal-token`).
-  - Planner: topological sort. Executor: trigger / agent (Ollama tools) / HTTP+Slack+store / logic + safe edge conditions. Memory: Qdrant.
+  - Planner: topological sort. Executor: trigger / agent (Groq chat + OpenAI tools) / HTTP+Slack+store / logic + safe edge conditions. Memory: Qdrant + Ollama embeddings.
 - **infra**: Docker Compose for Postgres, Redis, Qdrant only.
 
 ### Execution flow

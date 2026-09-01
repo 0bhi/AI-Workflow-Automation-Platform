@@ -3,7 +3,8 @@ export type WorkflowRunState = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED";
 const ALLOWED_RUN_TRANSITIONS: Record<WorkflowRunState, WorkflowRunState[]> = {
   PENDING: ["RUNNING"],
   RUNNING: ["SUCCEEDED", "FAILED"],
-  SUCCEEDED: [],
+  // Late step failure after a premature SUCCEEDED must still be recordable.
+  SUCCEEDED: ["FAILED"],
   FAILED: [],
 };
 

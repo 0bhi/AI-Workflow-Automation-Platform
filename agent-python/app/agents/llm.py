@@ -1,4 +1,9 @@
-"""Shared OpenAI-compatible LLM client (Ollama by default)."""
+"""OpenAI-compatible clients for chat and embeddings.
+
+Chat uses OPENAI_BASE_URL / OPENAI_API_KEY (Groq, Ollama, etc.).
+Embeddings can use a separate EMBEDDING_BASE_URL / EMBEDDING_API_KEY
+(e.g. local Ollama) and fall back to the chat endpoint if unset.
+"""
 
 import os
 
@@ -23,6 +28,14 @@ def llm_model() -> str:
     return os.environ.get("OPENAI_MODEL", DEFAULT_MODEL)
 
 
+def embedding_base_url() -> str:
+    return os.environ.get("EMBEDDING_BASE_URL", llm_base_url()).rstrip("/")
+
+
+def embedding_api_key() -> str:
+    return os.environ.get("EMBEDDING_API_KEY") or llm_api_key()
+
+
 def embedding_model() -> str:
     return os.environ.get("OPENAI_EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
 
@@ -36,4 +49,5 @@ def make_async_client() -> AsyncOpenAI:
 
 
 def make_sync_client() -> OpenAI:
-    return OpenAI(api_key=llm_api_key(), base_url=llm_base_url())
+    """Sync client used for embeddings (may point at a different provider)."""
+    return OpenAI(api_key=embedding_api_key(), base_url=embedding_base_url())

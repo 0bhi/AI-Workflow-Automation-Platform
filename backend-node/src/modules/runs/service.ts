@@ -9,6 +9,7 @@ import {
   failuresTotal,
   workflowRunsTotal,
 } from "../../lib/metrics";
+import { countDagNodes } from "../../lib/dagSnapshot";
 
 export async function upsertStepAndUpdateRun(opts: {
   runId: string;
@@ -126,9 +127,10 @@ export async function upsertStepAndUpdateRun(opts: {
     const runRow = await client.query<{
       status: WorkflowRunState;
       tenant_id: string;
+      snapshot_dag_json: unknown;
     }>(
       `
-        select status, tenant_id
+        select status, tenant_id, snapshot_dag_json
         from workflow_runs
         where id = $1
         for update
@@ -138,6 +140,7 @@ export async function upsertStepAndUpdateRun(opts: {
 
     const currentRunStatus = runRow.rows[0]?.status ?? "PENDING";
     const tenantId = runRow.rows[0]?.tenant_id;
+    const expectedNodes = countDagNodes(runRow.rows[0]?.snapshot_dag_json);
 
     let nextRunStatus: WorkflowRunState | null = null;
 
@@ -150,13 +153,15 @@ export async function upsertStepAndUpdateRun(opts: {
         nextRunStatus ?? currentRunStatus,
         "FAILED"
       );
-    } else if (opts.status === "SUCCEEDED") {
+    } else if (opts.status === "SUCCEEDED" || opts.status === "SKIPPED") {
+      const recorded = Number(stats?.total ?? 0);
+      const allDagNodesRecorded =
+        expectedNodes > 0 ? recorded >= expectedNodes : recorded > 0;
       const allSettled =
-        stats &&
-        Number(stats.total) > 0 &&
-        Number(stats.running) === 0 &&
-        Number(stats.pending) === 0 &&
-        Number(stats.failed) === 0;
+        allDagNodesRecorded &&
+        Number(stats?.running ?? 0) === 0 &&
+        Number(stats?.pending ?? 0) === 0 &&
+        Number(stats?.failed ?? 0) === 0;
 
       if (allSettled) {
         nextRunStatus = transitionRunState(

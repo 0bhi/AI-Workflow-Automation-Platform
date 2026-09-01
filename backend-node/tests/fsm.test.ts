@@ -19,8 +19,12 @@ describe("WorkflowRunState FSM", () => {
     expect(() => transitionRunState("PENDING", "SUCCEEDED")).toThrow(/Invalid/);
   });
 
-  it("rejects SUCCEEDED → RUNNING (terminal state)", () => {
+  it("rejects SUCCEEDED → RUNNING (cannot reopen a succeeded run)", () => {
     expect(() => transitionRunState("SUCCEEDED", "RUNNING")).toThrow(/Invalid/);
+  });
+
+  it("allows SUCCEEDED → FAILED so a late step failure is not rolled back", () => {
+    expect(transitionRunState("SUCCEEDED", "FAILED")).toBe("FAILED");
   });
 
   it("rejects FAILED → RUNNING (terminal state)", () => {

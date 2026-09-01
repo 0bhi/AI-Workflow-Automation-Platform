@@ -37,7 +37,8 @@ fi
 
 if ! curl -sf "http://127.0.0.1:11434/api/tags" >/dev/null; then
   echo "    Warning: Ollama is not reachable at http://127.0.0.1:11434"
-  echo "    Agent nodes need: ollama serve, plus qwen3:8b and qwen3-embedding:0.6b"
+  echo "    Memory embeddings need: ollama serve and qwen3-embedding:0.6b"
+  echo "    (Chat can use Groq via OPENAI_BASE_URL in agent-python/.env)"
 fi
 
 echo "==> Applying database schema..."

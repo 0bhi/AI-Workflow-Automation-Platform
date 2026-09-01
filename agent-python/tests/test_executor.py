@@ -11,6 +11,7 @@ from app.agents.executor import (
     _execute_logic,
     _normalize_node_type,
     _should_execute_node,
+    _text_for_slack,
     StepUpdateSender,
 )
 from app.agents.planner import DagNode, DagEdge, DagSnapshot
@@ -92,6 +93,26 @@ class TestToolExecutor:
         node = _node("tool.http_request", "tool.http_request", config={})
         with pytest.raises(RuntimeError, match="url"):
             await _execute_tool(node, {})
+
+
+class TestSlackMessageText:
+    def test_uses_agent_output_not_full_result_json(self):
+        ctx = {
+            "current_output": {
+                "type": "agent",
+                "node": "agent.plan_and_execute",
+                "output": "✅ Deployment of API succeeded.",
+                "tool_calls": [],
+            }
+        }
+        text = _text_for_slack({"channel": "#general", "text": ""}, ctx)
+        assert text == "✅ Deployment of API succeeded."
+        assert "tool_calls" not in text
+
+    def test_prefers_configured_text(self):
+        ctx = {"current_output": {"output": "from agent"}}
+        text = _text_for_slack({"text": "hardcoded"}, ctx)
+        assert text == "hardcoded"
 
 
 @pytest.mark.asyncio

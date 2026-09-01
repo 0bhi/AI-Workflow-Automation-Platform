@@ -1,6 +1,6 @@
 ## AI Workflow Automation Platform
 
-Multi-tenant **AI workflow automation platform**: design DAGs in a web UI, trigger runs from the dashboard, HTTP webhooks, or cron, and execute them in a Python **agentic executor** with real tool-calling and Qdrant memory. Stack: **Next.js**, **Node.js Fastify + BullMQ**, **FastAPI + local Ollama**, **Postgres + Redis + Qdrant**.
+Multi-tenant **AI workflow automation platform**: design DAGs in a web UI, trigger runs from the dashboard, HTTP webhooks, or cron, and execute them in a Python **agentic executor** with real tool-calling and Qdrant memory. Stack: **Next.js**, **Node.js Fastify + BullMQ**, **FastAPI + Groq chat + local Ollama embeddings**, **Postgres + Redis + Qdrant**.
 
 ---
 
@@ -66,7 +66,7 @@ Webhooks (`POST /hooks/:workflowId`) and cron skip JWT but still enforce the mon
 - Topological execution; edge conditions via a safe AST evaluator (`ctx`, `output`).
 - Agent nodes: OpenAI-compatible tool loop, max-iteration guard, per-node model/prompt/temperature.
 - Tools: `http_request`, `slack_send_message`, `search_memory`, `store_data` (in-run context only).
-- Memory: per-tenant Qdrant vectors; embeddings from Ollama (`qwen3-embedding:0.6b`).
+- Memory: per-tenant Qdrant vectors; embeddings from Ollama (`qwen3-embedding:0.6b`); chat via Groq (`openai/gpt-oss-20b`).
 
 ### Auth, tenancy, quotas
 
@@ -92,13 +92,16 @@ Webhooks (`POST /hooks/:workflowId`) and cron skip JWT but still enforce the mon
 
 ### Prerequisites
 
-- Node.js 20+, Python 3.11+ (3.12 in CI), Docker Compose, Ollama.
+- Node.js 20+, Python 3.11+ (3.12 in CI), Docker Compose.
+- A Groq API key for chat (`openai/gpt-oss-20b`).
+- Ollama for memory embeddings (`qwen3-embedding:0.6b`).
 
 ```bash
 ollama serve
-ollama pull qwen3:8b
 ollama pull qwen3-embedding:0.6b
 ```
+
+Copy `agent-python/.env.example` to `agent-python/.env` and set `OPENAI_API_KEY` to your Groq key.
 
 If you previously used a different embedding size, delete the Qdrant `agent_memory` collection (or the `qdrant_data` volume).
 
@@ -147,9 +150,13 @@ cd ../backend-node && npm test
 | --- | --- | --- |
 | `NODE_BACKEND_URL` | `http://localhost:4000` | Step updates |
 | `INTERNAL_API_TOKEN` | `dev-internal-token` | Must match the Node token |
-| `OPENAI_BASE_URL` | `http://127.0.0.1:11434/v1` | Ollama |
-| `OPENAI_MODEL` | `qwen3:8b` | Agent LLM |
+| `OPENAI_BASE_URL` | `https://api.groq.com/openai/v1` | Chat API (Groq) |
+| `OPENAI_API_KEY` | — | Groq API key |
+| `OPENAI_MODEL` | `openai/gpt-oss-20b` | Agent LLM |
+| `EMBEDDING_BASE_URL` | `http://127.0.0.1:11434/v1` | Embeddings API (Ollama); falls back to `OPENAI_BASE_URL` |
+| `EMBEDDING_API_KEY` | `ollama` | Ollama embeddings key |
 | `OPENAI_EMBEDDING_MODEL` | `qwen3-embedding:0.6b` | Memory embeddings |
+| `EMBEDDING_DIM` | `1024` | Must match the embedding model (recreate Qdrant collection if you change it) |
 | `QDRANT_URL` | `http://localhost:6333` | Vector DB |
 
 ---
