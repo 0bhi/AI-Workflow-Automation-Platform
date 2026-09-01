@@ -1,8 +1,6 @@
 """Tests for the DAG executor with mocked LLM and tool calls."""
 
-import json
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -129,22 +127,7 @@ class TestExecuteRun:
         assert calls[1]["node_id"] == "logic.branch"
 
     async def test_skipped_node_on_failed_source(self):
-        """When a source node fails, downstream nodes should be skipped."""
-        snapshot: DagSnapshot = {
-            "nodes": [
-                _node("bad_tool", "tool"),
-                _node("after", "logic"),
-            ],
-            "edges": [_edge("bad_tool", "after")],
-        }
-
-        sender = MagicMock(spec=StepUpdateSender)
-        sender.send_update = AsyncMock()
-
-        # bad_tool will fail because it's a generic tool with no side-effect
-        # but won't raise, so the run should continue... actually tool nodes
-        # with fallback don't raise. Let's test with a conditional edge instead.
-
+        """Nodes whose incoming edge conditions fail are SKIPPED."""
         snapshot_cond: DagSnapshot = {
             "nodes": [
                 _node("start", "trigger"),
@@ -173,7 +156,5 @@ class TestExecuteRun:
         calls = [c.args[0] for c in sender2.send_update.call_args_list]
         statuses = {c["node_id"]: c["status"] for c in calls}
         assert statuses["start"] == "SUCCEEDED"
-        # The trigger output won't have a "go" key in the right place for
-        # the condition, so both branches should be SKIPPED
         assert "branch_yes" in statuses
         assert "branch_no" in statuses

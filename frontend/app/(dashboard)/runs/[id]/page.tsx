@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { API_BASE_URL, buildAuthHeaders } from "@lib/api/client";
@@ -117,27 +117,39 @@ export default function RunDetailPage({
   const router = useRouter();
   const [run, setRun] = useState<RunDetail | null | "loading">("loading");
   const [replaying, setReplaying] = useState(false);
+  const pollStatusRef = useRef<string>("PENDING");
 
   useEffect(() => {
     let cancelled = false;
+    pollStatusRef.current = "PENDING";
 
     async function load() {
       try {
         const data = await fetchRun(params.id);
         if (!cancelled) {
           setRun(data);
+          if (data?.status) {
+            pollStatusRef.current = data.status;
+          }
         }
       } catch {
         if (!cancelled) {
           setRun(null);
+          pollStatusRef.current = "FAILED";
         }
       }
     }
 
     void load();
+    const timer = window.setInterval(() => {
+      if (["PENDING", "RUNNING"].includes(pollStatusRef.current)) {
+        void load();
+      }
+    }, 2000);
 
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, [params.id]);
 

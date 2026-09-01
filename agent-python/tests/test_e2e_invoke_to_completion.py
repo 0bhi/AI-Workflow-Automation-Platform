@@ -245,7 +245,7 @@ def test_e2e_invoke_workflow_to_completion():
                 assert r.status_code == 200, r.text
                 last = r.json()
                 status = last.get("run", {}).get("status") or last.get("status")
-                if status in {"SUCCEEDED", "FAILED", "CANCELLED"}:
+                if status in {"SUCCEEDED", "FAILED"}:
                     break
                 time.sleep(0.75)
 

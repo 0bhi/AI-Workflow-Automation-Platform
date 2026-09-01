@@ -1,6 +1,5 @@
 import { FastifyInstance } from "fastify";
 import { randomUUID } from "crypto";
-import { z } from "zod";
 import { fetch } from "undici";
 import { env } from "../../config/env";
 import { query } from "../../db/client";
@@ -26,7 +25,7 @@ export async function registerSlackIntegrationRoutes(app: FastifyInstance) {
     authorizeUrl.searchParams.set("redirect_uri", env.SLACK_OAUTH_REDIRECT_URI);
     authorizeUrl.searchParams.set("state", state);
 
-    return reply.redirect(302, authorizeUrl.toString());
+    return reply.send({ url: authorizeUrl.toString() });
   });
 
   // OAuth callback — exchange code for token and store
@@ -36,7 +35,7 @@ export async function registerSlackIntegrationRoutes(app: FastifyInstance) {
     const { code, state, error: oauthError } = request.query;
 
     if (oauthError) {
-      return reply.redirect(302, `${env.FRONTEND_URL}/workflows?oauth_error=${oauthError}`);
+      return reply.redirect(302, `${env.FRONTEND_URL}/integrations?oauth_error=${oauthError}`);
     }
 
     if (!code || !state) {
@@ -67,7 +66,7 @@ export async function registerSlackIntegrationRoutes(app: FastifyInstance) {
 
     if (!tokenData.ok) {
       request.log.error({ tokenData }, "Slack OAuth token exchange failed");
-      return reply.redirect(302, `${env.FRONTEND_URL}/workflows?oauth_error=token_exchange_failed`);
+      return reply.redirect(302, `${env.FRONTEND_URL}/integrations?oauth_error=token_exchange_failed`);
     }
 
     const accessToken = tokenData.access_token as string;
@@ -103,7 +102,7 @@ export async function registerSlackIntegrationRoutes(app: FastifyInstance) {
     );
 
     request.log.info({ tenantId, teamId }, "Slack OAuth connection saved");
-    return reply.redirect(302, `${env.FRONTEND_URL}/workflows?oauth_success=slack`);
+    return reply.redirect(302, `${env.FRONTEND_URL}/integrations?oauth_success=slack`);
   });
 
   // List current integrations for the tenant

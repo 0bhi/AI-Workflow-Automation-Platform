@@ -1,20 +1,10 @@
-export type WorkflowRunState =
-  | "PENDING"
-  | "RUNNING"
-  | "WAITING_FOR_EXTERNAL"
-  | "RETRYING"
-  | "SUCCEEDED"
-  | "FAILED"
-  | "CANCELLED";
+export type WorkflowRunState = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED";
 
 const ALLOWED_RUN_TRANSITIONS: Record<WorkflowRunState, WorkflowRunState[]> = {
   PENDING: ["RUNNING"],
-  RUNNING: ["WAITING_FOR_EXTERNAL", "RETRYING", "SUCCEEDED", "FAILED", "CANCELLED"],
-  WAITING_FOR_EXTERNAL: ["RUNNING", "FAILED", "CANCELLED"],
-  RETRYING: ["RUNNING", "FAILED"],
+  RUNNING: ["SUCCEEDED", "FAILED"],
   SUCCEEDED: [],
   FAILED: [],
-  CANCELLED: [],
 };
 
 export function transitionRunState(current: WorkflowRunState, next: WorkflowRunState): WorkflowRunState {
@@ -29,5 +19,3 @@ export function transitionRunState(current: WorkflowRunState, next: WorkflowRunS
   }
   return next;
 }
-
-

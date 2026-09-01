@@ -5,8 +5,6 @@ create table if not exists tenants (
   name text not null,
   slug text not null unique,
   plan text not null default 'free',
-  max_concurrent_runs integer not null default 5,
-  max_monthly_llm_tokens bigint not null default 1000000,
   max_monthly_runs bigint not null default 1000,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -69,8 +67,7 @@ create table if not exists workflow_runs (
   finished_at timestamptz,
   input_payload_json jsonb,
   output_payload_json jsonb,
-  failure_reason text,
-  retry_of_run_id text
+  failure_reason text
 );
 
 create index if not exists workflow_runs_tenant_idx
@@ -161,20 +158,11 @@ create index if not exists workflow_schedules_next_run_idx
   on workflow_schedules (next_run_at)
   where enabled = true;
 
--- Agent memory references (metadata; vectors live in Qdrant)
-create table if not exists agent_memories (
-  id text primary key,
-  tenant_id text not null references tenants(id) on delete cascade,
-  run_id text references workflow_runs(id) on delete set null,
-  node_id text,
-  content_preview text,
-  qdrant_point_id text,
-  metadata_json jsonb default '{}'::jsonb,
-  created_at timestamptz not null default now()
-);
-
-create index if not exists agent_memories_tenant_idx
-  on agent_memories (tenant_id, created_at desc);
+-- Drop leftover columns/tables from earlier drafts (idempotent).
+alter table tenants drop column if exists max_concurrent_runs;
+alter table tenants drop column if exists max_monthly_llm_tokens;
+alter table workflow_runs drop column if exists retry_of_run_id;
+drop table if exists agent_memories;
 
 -- Tenant invitations (admin-issued, token-based)
 create table if not exists invites (

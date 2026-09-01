@@ -19,13 +19,12 @@ export async function upsertStepAndUpdateRun(opts: {
   outputJson: unknown;
   errorJson: unknown;
   traceId: string | null;
+  llmTokenUsage?: number | null;
 }) {
   const client = await pool.connect();
   try {
     await client.query("begin");
 
-    // Determine the attempt number for this step.
-    // When status is RETRYING, we close the current attempt and open a new one.
     const latestAttemptRow = await client.query<{
       attempt: number;
       status: StepState;
@@ -42,20 +41,15 @@ export async function upsertStepAndUpdateRun(opts: {
     );
 
     const existing = latestAttemptRow.rows[0] ?? null;
-    let attempt = existing?.attempt ?? 1;
+    const attempt = existing?.attempt ?? 1;
 
-    if (opts.status === "RETRYING" && existing) {
-      // Validate the FSM transition on the current attempt before bumping.
-      transitionStepState(existing.status, "RETRYING");
-      attempt = existing.attempt + 1;
-    } else if (existing) {
+    if (existing) {
       transitionStepState(existing.status, opts.status);
     } else if (opts.status !== "PENDING" && opts.status !== "RUNNING") {
       transitionStepState("PENDING", opts.status);
     }
 
     const stepId = `${opts.runId}:${opts.nodeId}:${attempt}`;
-    const stepStatus: StepState = opts.status === "RETRYING" ? "RUNNING" : opts.status;
 
     await client.query(
       `
@@ -69,8 +63,9 @@ export async function upsertStepAndUpdateRun(opts: {
           input_json,
           output_json,
           error_json,
-          trace_id
-        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          trace_id,
+          llm_token_usage
+        ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
         on conflict (run_id, node_id, attempt)
         do update set
           status = excluded.status,
@@ -78,6 +73,7 @@ export async function upsertStepAndUpdateRun(opts: {
           output_json = excluded.output_json,
           error_json = excluded.error_json,
           trace_id = excluded.trace_id,
+          llm_token_usage = coalesce(excluded.llm_token_usage, workflow_steps.llm_token_usage),
           finished_at = case
             when excluded.status in ('SUCCEEDED','FAILED','SKIPPED') then now()
             else workflow_steps.finished_at
@@ -88,18 +84,16 @@ export async function upsertStepAndUpdateRun(opts: {
         opts.runId,
         opts.nodeId,
         opts.type,
-        stepStatus,
+        opts.status,
         attempt,
         opts.inputJson ?? null,
         opts.outputJson ?? null,
         opts.errorJson ?? null,
         opts.traceId ?? null,
+        opts.llmTokenUsage ?? null,
       ]
     );
 
-    // --- Run-level aggregate stats ---
-    // Counts per status across all steps (latest attempt per node) for this run.
-    // Logic: group by node_id, take the row with max attempt, then aggregate.
     const statsRow = await client.query<{
       total: string;
       succeeded: string;
@@ -107,7 +101,6 @@ export async function upsertStepAndUpdateRun(opts: {
       running: string;
       pending: string;
       skipped: string;
-      retrying: string;
     }>(
       `
         with latest as (
@@ -122,8 +115,7 @@ export async function upsertStepAndUpdateRun(opts: {
           count(*) filter (where status = 'FAILED')::text    as failed,
           count(*) filter (where status = 'RUNNING')::text   as running,
           count(*) filter (where status = 'PENDING')::text   as pending,
-          count(*) filter (where status = 'SKIPPED')::text   as skipped,
-          count(*) filter (where status = 'RETRYING')::text  as retrying
+          count(*) filter (where status = 'SKIPPED')::text   as skipped
         from latest
       `,
       [opts.runId]
@@ -131,7 +123,6 @@ export async function upsertStepAndUpdateRun(opts: {
 
     const stats = statsRow.rows[0];
 
-    // Update workflow_runs status based on aggregate step state.
     const runRow = await client.query<{
       status: WorkflowRunState;
       tenant_id: string;
@@ -154,25 +145,18 @@ export async function upsertStepAndUpdateRun(opts: {
       nextRunStatus = transitionRunState(currentRunStatus, "RUNNING");
     }
 
-    if (opts.status === "RETRYING" && (nextRunStatus ?? currentRunStatus) === "RUNNING") {
-      nextRunStatus = transitionRunState(
-        nextRunStatus ?? currentRunStatus,
-        "RETRYING"
-      );
-    } else if (opts.status === "FAILED") {
+    if (opts.status === "FAILED") {
       nextRunStatus = transitionRunState(
         nextRunStatus ?? currentRunStatus,
         "FAILED"
       );
     } else if (opts.status === "SUCCEEDED") {
-      // All steps settled (SUCCEEDED or SKIPPED) → mark run SUCCEEDED.
       const allSettled =
         stats &&
         Number(stats.total) > 0 &&
         Number(stats.running) === 0 &&
         Number(stats.pending) === 0 &&
-        Number(stats.failed) === 0 &&
-        Number(stats.retrying) === 0;
+        Number(stats.failed) === 0;
 
       if (allSettled) {
         nextRunStatus = transitionRunState(
@@ -188,7 +172,7 @@ export async function upsertStepAndUpdateRun(opts: {
           update workflow_runs
           set status = $2,
               finished_at = case
-                when $2 in ('SUCCEEDED','FAILED','CANCELLED') then now()
+                when $2 in ('SUCCEEDED','FAILED') then now()
                 else finished_at
               end
           where id = $1
@@ -199,7 +183,6 @@ export async function upsertStepAndUpdateRun(opts: {
 
     await client.query("commit");
 
-    // Prometheus metrics
     workflowStepsTotal
       .labels(tenantId ?? "unknown", opts.type, opts.status)
       .inc();
@@ -221,7 +204,6 @@ export async function upsertStepAndUpdateRun(opts: {
       failuresTotal.labels(tenantId ?? "unknown", "run_failure").inc();
     }
 
-    // Fire-and-forget usage metering (non-blocking, best-effort)
     if (tenantId) {
       const usagePromises: Promise<void>[] = [];
 
@@ -230,7 +212,12 @@ export async function upsertStepAndUpdateRun(opts: {
       }
 
       if (opts.status === "SUCCEEDED") {
-        const inc: { steps: number; toolCalls?: number; llmCalls?: number } = {
+        const inc: {
+          steps: number;
+          toolCalls?: number;
+          llmCalls?: number;
+          llmTokens?: number;
+        } = {
           steps: 1,
         };
         if (opts.type.startsWith("tool")) {
@@ -238,6 +225,9 @@ export async function upsertStepAndUpdateRun(opts: {
         }
         if (opts.type.startsWith("agent")) {
           inc.llmCalls = 1;
+          if (opts.llmTokenUsage) {
+            inc.llmTokens = opts.llmTokenUsage;
+          }
         }
         usagePromises.push(recordRunUsage(tenantId, inc));
       }
@@ -251,5 +241,3 @@ export async function upsertStepAndUpdateRun(opts: {
     client.release();
   }
 }
-
-

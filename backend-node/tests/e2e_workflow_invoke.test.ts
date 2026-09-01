@@ -46,7 +46,7 @@ async function waitForRunTerminalStatus(runId: string, timeoutMs = 30_000) {
       [runId]
     );
     const status = rows.rows[0]?.status;
-    if (status && ["SUCCEEDED", "FAILED", "CANCELLED"].includes(status)) {
+    if (status && ["SUCCEEDED", "FAILED"].includes(status)) {
       return status;
     }
     await new Promise((r) => setTimeout(r, 300));

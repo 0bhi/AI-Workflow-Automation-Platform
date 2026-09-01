@@ -1,15 +1,17 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 from typing import Any
 import asyncio
+import os
 
-from .agents.executor import execute_run as execute_dag_run, DagSnapshot
+from .agents.executor import execute_run as execute_dag_run
+
+INTERNAL_API_TOKEN = os.environ.get("INTERNAL_API_TOKEN", "dev-internal-token")
 
 
 class ExecuteRunRequest(BaseModel):
     run_id: str
     tenant_id: str
-    # Accept any JSON object here and let the executor validate/interpret it.
     snapshot_dag_json: dict[str, Any]
     input_payload: dict | None = None
     tools_context: dict | None = None
@@ -26,19 +28,25 @@ class ExecuteRunResponse(BaseModel):
 app = FastAPI(title="AI Workflow Agent Service", version="0.1.0")
 
 
+def _assert_internal_token(x_internal_token: str | None) -> None:
+    if x_internal_token != INTERNAL_API_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok", "service": "agent-python"}
 
 
 @app.post("/internal/runs/execute", response_model=ExecuteRunResponse)
-async def execute_run(request: ExecuteRunRequest) -> ExecuteRunResponse:
+async def execute_run(
+    request: ExecuteRunRequest,
+    x_internal_token: str | None = Header(default=None),
+) -> ExecuteRunResponse:
     """
     Accept a workflow run from the Node backend and execute it asynchronously.
-
-    For the MVP we simply schedule `executor.execute_run` on the event loop and
-    immediately acknowledge the request so the Node service is not blocked.
     """
+    _assert_internal_token(x_internal_token)
 
     asyncio.create_task(
         execute_dag_run(
@@ -56,6 +64,3 @@ async def execute_run(request: ExecuteRunRequest) -> ExecuteRunResponse:
         run_id=request.run_id,
         trace_id=request.trace_id,
     )
-
-
-

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { transitionRunState, type WorkflowRunState } from "../src/lib/fsm/runState";
-import { transitionStepState, type StepState } from "../src/lib/fsm/stepState";
+import { transitionRunState } from "../src/lib/fsm/runState";
+import { transitionStepState } from "../src/lib/fsm/stepState";
 
 describe("WorkflowRunState FSM", () => {
   it("allows PENDING → RUNNING", () => {
@@ -13,18 +13,6 @@ describe("WorkflowRunState FSM", () => {
 
   it("allows RUNNING → FAILED", () => {
     expect(transitionRunState("RUNNING", "FAILED")).toBe("FAILED");
-  });
-
-  it("allows RUNNING → RETRYING", () => {
-    expect(transitionRunState("RUNNING", "RETRYING")).toBe("RETRYING");
-  });
-
-  it("allows RUNNING → CANCELLED", () => {
-    expect(transitionRunState("RUNNING", "CANCELLED")).toBe("CANCELLED");
-  });
-
-  it("allows RETRYING → RUNNING", () => {
-    expect(transitionRunState("RETRYING", "RUNNING")).toBe("RUNNING");
   });
 
   it("rejects PENDING → SUCCEEDED (must go through RUNNING)", () => {
@@ -59,10 +47,6 @@ describe("StepState FSM", () => {
 
   it("allows RUNNING → FAILED", () => {
     expect(transitionStepState("RUNNING", "FAILED")).toBe("FAILED");
-  });
-
-  it("allows RUNNING → RETRYING", () => {
-    expect(transitionStepState("RUNNING", "RETRYING")).toBe("RETRYING");
   });
 
   it("rejects SUCCEEDED → RUNNING (terminal state)", () => {

@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   API_BASE_URL,
   buildAuthHeaders,
-  importStarterWorkflows,
   listTemplates,
   importTemplates,
   type WorkflowTemplate,
@@ -78,7 +77,7 @@ export function WorkflowsClient({ initialWorkflows }: Props) {
         .catch(() => {})
         .finally(() => setLoadingTemplates(false));
     }
-  }, [workflows.length]);
+  }, [workflows.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggleTemplate(id: string) {
     setSelectedTemplateIds((prev) => {
@@ -96,25 +95,18 @@ export function WorkflowsClient({ initialWorkflows }: Props) {
     try {
       const ids = Array.from(selectedTemplateIds);
       const data = await importTemplates(ids.length > 0 ? ids : undefined);
-      setWorkflows(data);
+      const res = await fetch(`${API_BASE_URL}/api/workflows`, {
+        cache: "no-store",
+        headers: buildAuthHeaders(),
+      });
+      if (res.ok) {
+        setWorkflows((await res.json()) as WorkflowListItem[]);
+      } else {
+        setWorkflows(data as WorkflowListItem[]);
+      }
       setShowNew(false);
     } catch (err: any) {
       setImportError(err.message ?? "Failed to import templates");
-    } finally {
-      setImporting(false);
-    }
-  }
-
-  async function handleImportStarters() {
-    setImporting(true);
-    setImportError(null);
-
-    try {
-      const data = await importStarterWorkflows();
-      setWorkflows(data);
-      setShowNew(false);
-    } catch (err: any) {
-      setImportError(err.message ?? "Failed to import starter workflows");
     } finally {
       setImporting(false);
     }
@@ -473,14 +465,11 @@ export function WorkflowsClient({ initialWorkflows }: Props) {
                     : `Import ${selectedTemplateIds.size} template${selectedTemplateIds.size !== 1 ? "s" : ""}`}
                 </button>
               ) : (
-                <button
-                  type="button"
-                  className="btn-primary text-xs disabled:opacity-60"
-                  onClick={handleImportStarters}
-                  disabled={importing}
-                >
-                  {importing ? "Importing…" : "Import starter workflows"}
-                </button>
+                <p className="text-xs text-slate-500">
+                  No templates in the database. Run{" "}
+                  <code className="rounded bg-slate-800 px-1">npm run db:seed</code> in
+                  backend-node, then refresh.
+                </p>
               )}
               <button
                 type="button"

@@ -64,23 +64,6 @@ export interface WorkflowSummary {
   status: "draft" | "active" | "archived";
 }
 
-export async function importStarterWorkflows(): Promise<WorkflowSummary[]> {
-  const res = await fetch(`${API_BASE_URL}/api/workflows/import-starters`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...buildAuthHeaders()
-    },
-    body: JSON.stringify({})
-  });
-
-  if (!res.ok) {
-    throw new Error(`Failed to import starter workflows: ${res.status}`);
-  }
-
-  return res.json();
-}
-
 export interface WorkflowTemplate {
   id: string;
   name: string;
@@ -375,3 +358,53 @@ export async function acceptInvite(input: {
 
   return res.json();
 }
+
+export interface IntegrationConnection {
+  id: string;
+  provider: string;
+  scope: string | null;
+  teamId: string | null;
+  teamName: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function listIntegrations(): Promise<IntegrationConnection[]> {
+  const res = await fetch(`${API_BASE_URL}/api/integrations`, {
+    cache: "no-store",
+    headers: buildAuthHeaders(),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch integrations: ${res.status}`);
+  }
+
+  return res.json();
+}
+
+export async function getSlackInstallUrl(): Promise<string> {
+  const res = await fetch(`${API_BASE_URL}/api/integrations/slack/install`, {
+    cache: "no-store",
+    headers: buildAuthHeaders(),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? `Failed to start Slack install: ${res.status}`);
+  }
+
+  const data = (await res.json()) as { url: string };
+  return data.url;
+}
+
+export async function disconnectIntegration(provider: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/api/integrations/${provider}`, {
+    method: "DELETE",
+    headers: buildAuthHeaders(),
+  });
+
+  if (!res.ok && res.status !== 204) {
+    throw new Error(`Failed to disconnect ${provider}: ${res.status}`);
+  }
+}
+

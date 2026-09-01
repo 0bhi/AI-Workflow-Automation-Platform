@@ -42,6 +42,8 @@ fi
 
 echo "==> Applying database schema..."
 (cd backend-node && npm run db:schema) || true
+echo "==> Seeding workflow templates..."
+(cd backend-node && npm run db:seed) || true
 
 echo "==> Starting backend-node (API)..."
 (cd backend-node && npm run dev) &

@@ -11,6 +11,7 @@
  * advances it, so concurrent workers won't double-fire.
  */
 
+import { assertTenantRunQuota } from "../modules/tenants/quota";
 import { env } from "../config/env";
 import { runQueue } from "../lib/queue";
 import {
@@ -47,6 +48,21 @@ async function pollSchedules(): Promise<void> {
 
       const traceId = `trace_${Date.now()}`;
       const mode = wf.version.isSandbox ? ("sandbox" as const) : ("production" as const);
+
+      try {
+        await assertTenantRunQuota(sched.tenantId);
+      } catch (err) {
+        console.log(
+          JSON.stringify({
+            event: "schedule_skip",
+            reason: "quota_exceeded",
+            scheduleId: sched.id,
+            workflowId: sched.workflowId,
+            error: err instanceof Error ? err.message : String(err),
+          })
+        );
+        continue;
+      }
 
       const created = await createWorkflowRun({
         tenantId: sched.tenantId,

@@ -24,6 +24,7 @@ async function handleRunJob(job: { data: RunJobPayload }) {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      "x-internal-token": env.INTERNAL_API_TOKEN,
     },
     body: JSON.stringify({
       run_id: runId,

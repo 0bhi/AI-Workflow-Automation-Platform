@@ -46,10 +46,8 @@ interface PaletteNode {
 }
 
 const PALETTE: PaletteNode[] = [
-  { id: "trigger.email_received", type: "trigger", label: "Email received" },
   { id: "trigger.http_webhook", type: "trigger", label: "HTTP webhook" },
-  { id: "agent.plan_and_execute", type: "agent", label: "Plan & execute" },
-  { id: "agent.summarize", type: "agent", label: "Summarize" },
+  { id: "agent.plan_and_execute", type: "agent", label: "Agent" },
   { id: "tool.slack_send_message", type: "tool", label: "Slack send" },
   { id: "tool.http_request", type: "tool", label: "HTTP request" },
   { id: "logic.branch_if", type: "logic", label: "Branch if" }
@@ -101,6 +99,7 @@ function dagToReactFlow(initialDag?: DagSnapshot | null): {
         label: n.label,
         dagId: n.id,
         kind: normalizeKind(n.type),
+        nodeType: n.type,
         config: n.config ?? {}
       }
     });
@@ -275,10 +274,12 @@ function SlackConfigFields({
 
 function NodeConfigForm({
   node,
+  workflowId,
   onLabelChange,
   onConfigChange
 }: {
   node: Node;
+  workflowId: string;
   onLabelChange: (label: string) => void;
   onConfigChange: (key: string, value: unknown) => void;
 }) {
@@ -312,8 +313,36 @@ function NodeConfigForm({
         );
       case "trigger":
         return (
-          <div className="rounded-lg border border-sky-500/20 bg-sky-950/30 px-2.5 py-2 text-[11px] text-sky-300/80">
-            Trigger configuration is set via webhook URLs or integrations.
+          <div className="space-y-2">
+            <div className="rounded-lg border border-sky-500/20 bg-sky-950/30 px-2.5 py-2 text-[11px] text-sky-300/80">
+              Invoke this workflow with a POST to the webhook URL. The path is the secret.
+            </div>
+            <ConfigField label="Webhook URL">
+              <input
+                type="text"
+                className={`${readOnlyCls} font-mono`}
+                readOnly
+                value={`${API_BASE_URL}/hooks/${workflowId}`}
+              />
+            </ConfigField>
+            <button
+              type="button"
+              className="w-full rounded-lg border border-slate-700/60 bg-slate-800/60 px-2.5 py-1.5 text-[11px] text-slate-200 hover:bg-slate-700/80"
+              onClick={() => {
+                void navigator.clipboard.writeText(
+                  `${API_BASE_URL}/hooks/${workflowId}`
+                );
+              }}
+            >
+              Copy webhook URL
+            </button>
+            <p className="text-[11px] text-slate-500">
+              Example:{" "}
+              <code className="rounded bg-slate-800 px-0.5">
+                curl -X POST {API_BASE_URL}/hooks/{workflowId} -H
+                &apos;content-type: application/json&apos; -d &apos;{`{}`}&apos;
+              </code>
+            </p>
           </div>
         );
       case "logic":
@@ -422,6 +451,7 @@ export function WorkflowBuilder({ workflowId, workflowSlug, initialDag }: Workfl
         label: paletteNode.label,
         dagId,
         kind: paletteNode.type,
+        nodeType: paletteNode.id,
         config: {}
       }
     };
@@ -484,7 +514,7 @@ export function WorkflowBuilder({ workflowId, workflowSlug, initialDag }: Workfl
     return {
       nodes: nodes.map((n) => ({
         id: (n.data as any).dagId ?? n.id,
-        type: (n.data as any).kind ?? "tool",
+        type: (n.data as any).nodeType ?? (n.data as any).kind ?? "tool",
         label: (n.data as any).label ?? n.id,
         config: (n.data as any).config ?? {}
       })),
@@ -715,6 +745,7 @@ export function WorkflowBuilder({ workflowId, workflowSlug, initialDag }: Workfl
             {selectedNode ? (
               <NodeConfigForm
                 node={selectedNode}
+                workflowId={workflowId}
                 onLabelChange={(label) => updateSelectedNodeData({ label })}
                 onConfigChange={updateSelectedNodeConfig}
               />

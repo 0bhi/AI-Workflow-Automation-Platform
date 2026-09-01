@@ -1,5 +1,4 @@
 from collections.abc import Iterable
-from typing import Any
 from typing_extensions import TypedDict
 
 

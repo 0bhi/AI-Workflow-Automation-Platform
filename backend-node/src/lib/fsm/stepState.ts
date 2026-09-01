@@ -1,9 +1,8 @@
-export type StepState = "PENDING" | "RUNNING" | "RETRYING" | "SUCCEEDED" | "FAILED" | "SKIPPED";
+export type StepState = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "SKIPPED";
 
 const ALLOWED_STEP_TRANSITIONS: Record<StepState, StepState[]> = {
   PENDING: ["RUNNING", "SKIPPED", "SUCCEEDED", "FAILED"],
-  RUNNING: ["SUCCEEDED", "FAILED", "RETRYING"],
-  RETRYING: ["RUNNING", "FAILED"],
+  RUNNING: ["SUCCEEDED", "FAILED"],
   SUCCEEDED: [],
   FAILED: [],
   SKIPPED: [],
@@ -16,5 +15,3 @@ export function transitionStepState(current: StepState, next: StepState): StepSt
   }
   return next;
 }
-
-

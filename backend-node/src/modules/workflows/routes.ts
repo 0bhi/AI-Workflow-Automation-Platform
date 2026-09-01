@@ -7,7 +7,6 @@ import {
   createWorkflowVersion,
   getWorkflowByIdWithActiveVersion,
   getWorkflowWithActiveVersion,
-  importStarterWorkflowsForTenant,
   listWorkflows,
   updateWorkflow
 } from "./repository";
@@ -64,30 +63,6 @@ export async function registerWorkflowRoutes(app: FastifyInstance) {
     const tenantId = resolveTenantId(request);
     const items = await listWorkflows(tenantId);
     return items;
-  });
-
-  app.post("/api/workflows/import-starters", async (request, reply) => {
-    const { tenantId } = await assertRole(request, ADMIN);
-
-    const existing = await listWorkflows(tenantId);
-    if (existing.length > 0) {
-      return reply
-        .code(400)
-        .send({ error: "Tenant already has workflows; cannot import starters" });
-    }
-
-    try {
-      const created = await importStarterWorkflowsForTenant(tenantId);
-      return reply.code(201).send(created);
-    } catch (err: any) {
-      request.log.error(
-        { err, tenantId },
-        "Failed to import starter workflows for tenant"
-      );
-      return reply
-        .code(500)
-        .send({ error: "Failed to import starter workflows for tenant" });
-    }
   });
 
   app.post<{

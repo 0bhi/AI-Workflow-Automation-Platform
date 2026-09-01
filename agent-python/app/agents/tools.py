@@ -80,7 +80,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "function": {
             "name": "store_data",
             "description": (
-                "Persist structured data to the workflow context / database. "
+                "Persist structured data to the per-run workflow context. "
                 "Use when you need to save extracted fields, classifications, or results."
             ),
             "parameters": {
@@ -123,59 +123,21 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "create_ticket",
-            "description": "Create a support / issue ticket in the integrated system.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string", "description": "Ticket title"},
-                    "description": {
-                        "type": "string",
-                        "description": "Ticket body / description",
-                    },
-                    "priority": {
-                        "type": "string",
-                        "enum": ["low", "medium", "high", "critical"],
-                        "description": "Ticket priority",
-                    },
-                    "assignee": {
-                        "type": "string",
-                        "description": "User or team to assign to (optional)",
-                    },
-                },
-                "required": ["title", "description"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "extract_fields",
-            "description": (
-                "Extract structured fields from unstructured text or documents. "
-                "Returns a JSON object with the requested fields."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "text": {
-                        "type": "string",
-                        "description": "The source text to extract from",
-                    },
-                    "fields": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Field names to extract",
-                    },
-                },
-                "required": ["text", "fields"],
-            },
-        },
-    },
 ]
+
+
+def _parse_headers(headers: Any) -> dict[str, str]:
+    if not headers:
+        return {}
+    if isinstance(headers, str):
+        try:
+            parsed = json.loads(headers)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        headers = parsed
+    if not isinstance(headers, dict):
+        return {}
+    return {str(k): str(v) for k, v in headers.items()}
 
 
 async def handle_http_request(
@@ -183,15 +145,15 @@ async def handle_http_request(
 ) -> dict[str, Any]:
     url = args["url"]
     method = args.get("method", "GET").upper()
-    headers = args.get("headers") or {}
+    headers = _parse_headers(args.get("headers"))
     body = args.get("body")
 
     json_body = None
     if body:
         try:
-            json_body = json.loads(body)
+            json_body = json.loads(body) if isinstance(body, str) else body
         except (json.JSONDecodeError, TypeError):
-            pass
+            json_body = None
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.request(
@@ -199,7 +161,7 @@ async def handle_http_request(
             url=url,
             headers=headers,
             json=json_body if json_body is not None else None,
-            content=body if json_body is None and body else None,
+            content=body if json_body is None and isinstance(body, str) else None,
         )
 
     return {
@@ -219,7 +181,7 @@ async def handle_slack_send_message(
     if not bot_token:
         raise RuntimeError(
             "Slack bot token not configured. "
-            "Set SLACK_BOT_TOKEN or provide tools_context.slack.botToken."
+            "Connect Slack in Integrations or set SLACK_BOT_TOKEN."
         )
 
     channel = args["channel"]
@@ -266,39 +228,11 @@ async def handle_search_memory(
     return {"results": results}
 
 
-async def handle_create_ticket(
-    args: dict[str, Any], ctx: dict[str, Any]
-) -> dict[str, Any]:
-    import uuid
-
-    ticket_id = f"TICKET-{uuid.uuid4().hex[:8].upper()}"
-    return {
-        "ticket_id": ticket_id,
-        "title": args["title"],
-        "description": args["description"],
-        "priority": args.get("priority", "medium"),
-        "assignee": args.get("assignee"),
-        "status": "open",
-    }
-
-
-async def handle_extract_fields(
-    args: dict[str, Any], ctx: dict[str, Any]
-) -> dict[str, Any]:
-    return {
-        "source_length": len(args.get("text", "")),
-        "requested_fields": args.get("fields", []),
-        "note": "Field extraction delegated to the agent's reasoning.",
-    }
-
-
 TOOL_HANDLERS: dict[str, ToolHandler] = {
     "http_request": handle_http_request,
     "slack_send_message": handle_slack_send_message,
     "store_data": handle_store_data,
     "search_memory": handle_search_memory,
-    "create_ticket": handle_create_ticket,
-    "extract_fields": handle_extract_fields,
 }
 
 

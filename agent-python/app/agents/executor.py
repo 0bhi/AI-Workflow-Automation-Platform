@@ -26,6 +26,7 @@ from .memory import MemoryManager
 logger = logging.getLogger(__name__)
 
 NODE_BACKEND_URL = os.environ.get("NODE_BACKEND_URL", "http://localhost:4000")
+INTERNAL_API_TOKEN = os.environ.get("INTERNAL_API_TOKEN", "dev-internal-token")
 MAX_AGENT_ITERATIONS = int(os.environ.get("MAX_AGENT_ITERATIONS", "15"))
 
 _openai_client: AsyncOpenAI | None = None
@@ -66,6 +67,7 @@ class StepUpdateSender:
             try:
                 await client.post(
                     f"{NODE_BACKEND_URL}/internal/workflow-runs/{run_id}/steps",
+                    headers={"x-internal-token": INTERNAL_API_TOKEN},
                     json=payload,
                 )
             except Exception:
@@ -262,6 +264,8 @@ async def _execute_tool(node: DagNode, ctx: dict[str, Any]) -> dict[str, Any]:
             "headers": cfg.get("headers"),
             "body": cfg.get("json") or cfg.get("body"),
         }
+        if isinstance(args["body"], dict):
+            args["body"] = json.dumps(args["body"])
         if not args["url"]:
             raise RuntimeError("tool.http_request requires a 'url' in node.config")
         result = await handle_http_request(args, ctx)
@@ -289,7 +293,7 @@ async def _execute_tool(node: DagNode, ctx: dict[str, Any]) -> dict[str, Any]:
         result = await handle_slack_send_message(args, ctx)
         return {"type": "tool", "tool": "slack_send_message", "node": node_id, **result}
 
-    if node_id == "tool.store_data" or node_id.endswith(".db_write"):
+    if node_id == "tool.store_data" or node_id.endswith(".store_data") or node_id.endswith(".db_write"):
         from .tools import handle_store_data
 
         data = ctx.get("current_output") or ctx.get("input") or {}
@@ -297,26 +301,9 @@ async def _execute_tool(node: DagNode, ctx: dict[str, Any]) -> dict[str, Any]:
         result = await handle_store_data(args, ctx)
         return {"type": "tool", "tool": "store_data", "node": node_id, **result}
 
-    if "ticket_create" in node_id or "ticket_assign" in node_id:
-        from .tools import handle_create_ticket
-
-        data = ctx.get("current_output") or ctx.get("input") or {}
-        args = {
-            "title": data.get("title", f"Auto-generated from {node_id}") if isinstance(data, dict) else str(data)[:100],
-            "description": data.get("description", str(data)[:500]) if isinstance(data, dict) else str(data)[:500],
-            "priority": data.get("priority", "medium") if isinstance(data, dict) else "medium",
-            "assignee": data.get("assignee") if isinstance(data, dict) else None,
-        }
-        result = await handle_create_ticket(args, ctx)
-        return {"type": "tool", "tool": node_id.split(".")[-1], "node": node_id, **result}
-
-    # Fallback: record the tool call but perform no side-effect
-    return {
-        "type": "tool",
-        "tool": node_id,
-        "node": node_id,
-        "input": ctx.get("current_output") or ctx.get("input"),
-    }
+    raise RuntimeError(
+        f"Unknown tool node '{node_id}'. Supported tools: http_request, slack_send_message, store_data."
+    )
 
 
 async def _execute_logic(node: DagNode, ctx: dict[str, Any]) -> dict[str, Any]:
@@ -446,6 +433,8 @@ async def execute_run(
                 "output_json": output,
                 "trace_id": trace_id,
             }
+            if isinstance(output, dict) and output.get("total_tokens"):
+                update_payload["llm_token_usage"] = output["total_tokens"]
 
             node_results[node_id] = {"status": "SUCCEEDED", "output": output}
         except Exception as exc:

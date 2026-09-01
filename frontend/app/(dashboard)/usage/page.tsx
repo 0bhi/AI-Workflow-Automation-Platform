@@ -64,8 +64,7 @@ export default function UsagePage() {
     totalSteps,
     totalToolCalls,
     totalLlmCalls,
-    totalLlmTokens,
-    estimatedCostCents
+    totalLlmTokens
   } = usage;
 
   const values = [
@@ -83,12 +82,7 @@ export default function UsagePage() {
         <h1 className="text-2xl font-semibold">Usage & quotas</h1>
         <p className="text-sm text-slate-400">
           Current month usage for tenant <span className="font-mono">{usage.tenantId}</span>{" "}
-          ({usage.period}).
-        </p>
-        <p className="text-xs text-slate-500">
-          Estimated cost fields are wired through the schema; in this demo they remain{" "}
-          <span className="font-mono">0</span> because the stack uses free/self-hosted APIs.
-          You can plug in provider pricing later to make this live.
+          ({usage.period}). Monthly run quota is enforced before a run is queued.
         </p>
       </header>
 
@@ -111,7 +105,7 @@ export default function UsagePage() {
           <p className="text-xs uppercase text-slate-500">Tool calls</p>
           <p className="text-2xl font-semibold">{totalToolCalls}</p>
           <p className="text-xs text-slate-500">
-            Deterministic tool executions (HTTP, Slack, storage, tickets, etc.).
+            Deterministic tool executions (HTTP, Slack, storage).
           </p>
         </div>
         <div className="card space-y-2">
@@ -125,16 +119,7 @@ export default function UsagePage() {
           <p className="text-xs uppercase text-slate-500">LLM tokens (approx)</p>
           <p className="text-2xl font-semibold">{totalLlmTokens}</p>
           <p className="text-xs text-slate-500">
-            Aggregate token usage field, ready for pricing integration.
-          </p>
-        </div>
-        <div className="card space-y-2">
-          <p className="text-xs uppercase text-slate-500">Estimated cost</p>
-          <p className="text-2xl font-semibold">
-            ${(estimatedCostCents / 100).toFixed(2)}
-          </p>
-          <p className="text-xs text-slate-500">
-            Currently 0 in this portfolio demo; wire in provider pricing to make it live.
+            Token usage reported by agent completions (Ollama).
           </p>
         </div>
       </section>

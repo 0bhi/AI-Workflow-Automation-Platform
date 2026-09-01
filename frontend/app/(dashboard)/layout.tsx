@@ -42,6 +42,12 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           >
             Team
           </Link>
+          <Link
+            href="/integrations"
+            className="block rounded-lg px-3 py-2.5 text-slate-300 transition-colors hover:bg-slate-800/60 hover:text-slate-100"
+          >
+            Integrations
+          </Link>
         </nav>
         <AccountBadge />
       </aside>
